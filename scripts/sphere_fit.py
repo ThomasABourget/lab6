@@ -68,7 +68,6 @@ def xyz_callback(data):
     sphere_params_msg.zc = filtered_z_c
     sphere_params_msg.radius = filtered_radius
     sphere_pub.publish(sphere_params_msg)  # Publishing should use sphere_pub
-    print(sphere_params_msg)
 
 if __name__ == '__main__':
     rospy.init_node('sphere_fit', anonymous=True)

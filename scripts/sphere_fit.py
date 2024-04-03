@@ -1,68 +1,82 @@
 #!/usr/bin/env python3
+
 import rospy
 from robot_vision_lectures.msg import XYZarray, SphereParams
 from turtlesim.msg import Pose
+import numpy as np
 
-pos_msg = Pose()
-pos_received = False
+# Define global variables for filtered values
+filtered_x_c = 0.0
+filtered_y_c = 0.0
+filtered_z_c = 0.0
+filtered_radius = 0.0
+
+# Low-pass filter gains
+x_c_gain = 0.1
+y_c_gain = 0.1
+z_c_gain = 0.1
+radius_gain = 0.1
+
+# Parameters for inertia dynamics
+mass = 1.0  # Mass of the object
+damping = 1.0  # Damping coefficient
+
+def fit_sphere(x, y, z):
+    # Construct matrices A and B
+    A = np.vstack((x, y, z, np.ones_like(x))).T
+    B = x**2 + y**2 + z**2
+
+    # Solve for P
+    P, _, _, _ = np.linalg.lstsq(A, B, rcond=None)
+
+    # Extract center coordinates
+    x_c, y_c, z_c, _ = 0.5 * P
+
+    # Calculate radius using the formula
+    radius = np.sqrt(P[3] + x_c**2 + y_c**2 + z_c**2)
+    
+    return x_c, y_c, z_c, radius
+
+def apply_low_pass_filter(new_val, filtered_val, gain):
+    return gain * new_val + (1 - gain) * filtered_val
 
 def pose_callback(data):
-    global pos_msg, pos_received
-    pos_msg = data
-    pos_received = True
+    global filtered_x_c, filtered_y_c, filtered_z_c, filtered_radius
 
-def xyz_callback(data):
-    global x_c_previous, y_c_previous, z_c_previous, radius_previous
-    x = []
-    y = []
-    z = []
-    for point in data.points:
-        x.append(point.x)
-        y.append(point.y)
-        z.append(point.z)
-    x = np.array(x)
-    y = np.array(y)
-    z = np.array(z)
+    # Get the current position
+    x = data.x
+    y = data.y
+    z = data.z
+
+    # Fit sphere to the data
     x_c, y_c, z_c, radius = fit_sphere(x, y, z)
-    x_c_filtered = low_pass_filter(x_c, x_c_previous)
-    y_c_filtered = low_pass_filter(y_c, y_c_previous)
-    z_c_filtered = low_pass_filter(z_c, z_c_previous)
-    radius_filtered = low_pass_filter(radius, radius_previous)
-    x_c_previous = x_c_filtered
-    y_c_previous = y_c_filtered
-    z_c_previous = z_c_filtered
-    radius_previous = radius_filtered
+
+    # Apply low-pass filter to each parameter
+    filtered_x_c = apply_low_pass_filter(x_c, filtered_x_c, x_c_gain)
+    filtered_y_c = apply_low_pass_filter(y_c, filtered_y_c, y_c_gain)
+    filtered_z_c = apply_low_pass_filter(z_c, filtered_z_c, z_c_gain)
+    filtered_radius = apply_low_pass_filter(radius, filtered_radius, radius_gain)
+
+    # Publish the parameters of the filtered sphere
     sphere_params_msg = SphereParams()
-    sphere_params_msg.xc = x_c_filtered
-    sphere_params_msg.yc = y_c_filtered
-    sphere_params_msg.zc = z_c_filtered
-    sphere_params_msg.radius = radius_filtered
-    sphere_pub.publish(sphere_params_msg)
+    sphere_params_msg.xc = filtered_x_c
+    sphere_params_msg.yc = filtered_y_c
+    sphere_params_msg.zc = filtered_z_c
+    sphere_params_msg.radius = filtered_radius
+    sphere_pub.publish(sphere_params_msg)  # Publishing should use sphere_pub
 
 if __name__ == '__main__':
     rospy.init_node('sphere_fit', anonymous=True)
-    xyz_sub = rospy.Subscriber('/xyz_cropped_ball', XYZarray, xyz_callback)
+
+    # Add a subscriber to read the noisy position information
+    pos_sub = rospy.Subscriber('/turtle1/noisy_pose', Pose, pose_callback)
+
+    # Add a publisher for publishing the filtered position
     sphere_pub = rospy.Publisher('/sphere_params', SphereParams, queue_size=10)
 
-    pos_sub = rospy.Subscriber('/turtle1/noisy_pose', Pose, pose_callback)
-    pos_pub = rospy.Publisher('/turtle1/filtered_pose', Pose, queue_size=10)
-
+    # Set a 10 Hz frequency for this loop
     loop_rate = rospy.Rate(10)
 
-    fil_in = 0.0
-    fil_out = 5.5
-    fil_gain = 0.05
-
-    x_c_previous = 0.0
-    y_c_previous = 0.0
-    z_c_previous = 0.0
-    radius_previous = 0.0
-
+    # Run the control loop
     while not rospy.is_shutdown():
-        if pos_received:
-            fil_in = pos_msg.x
-            fil_out = fil_gain * fil_in + (1 - fil_gain) * fil_out
-            pos_msg.x = fil_out
-            pos_pub.publish(pos_msg)
-
-        loop_rate.sleep()
+        rospy.spin()

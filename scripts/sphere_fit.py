@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+#Current Thought Process: So i had this working I think. But my wonderfull computer blue screened and I didnt save the working verstion and was not able to get back to the orignal state that worked. So for
+#now I will turn this version in that I had that I belive also worked. I will work to get this working.
+
+
 
 import rospy
 from robot_vision_lectures.msg import XYZarray, SphereParams
